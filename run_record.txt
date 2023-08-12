@@ -1,0 +1,14 @@
+cd work/P... 
+python tools/train.py -c configs/rtdetr/rtdetr_hgnetv2_x_6x_coco_gd.yml --use_vdl=True --vdl_log_dir=../vdl_log/  --eval
+
+python tools/train.py -c configs/rtdetr/rtdetr_r18vd_6x_coco.yml --use_vdl=True --vdl_log_dir=../vdl_log/  --eval
+
+visualdl --logdir ./work/vdl_log/
+
+python tools/eval.py -c configs/rtdetr/rtdetr_hgnetv2_x_6x_coco_gd.yml -o weights=./output/rtdetr_hgnetv2_x_6x_coco_gd/model_final.pdparams
+
+
+
+python -m paddle.distributed.launch --gpus 0 tools/train.py -c configs/smalldet/ppyoloe_plus_sod_crn_l_80e_coco.yml --amp --eval --use_vdl=True --vdl_log_dir=../vdl_log/ -r /home/aistudio/work/PaddleDetection/output/ppyoloe_plus_sod_crn_l_80e_coco/best_model.pdparams
+
+python tools/train.py -c configs/smalldet/ppyoloe_plus_sod_crn_l_80e_coco.yml --amp --eval --use_vdl=True --vdl_log_dir=../vdl_log/ -r /home/aistudio/work/PaddleDetection/output/ppyoloe_plus_sod_crn_l_80e_coco/best_model.pdparams
