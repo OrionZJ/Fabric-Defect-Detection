@@ -25,7 +25,6 @@ from . import ttfnet
 from . import s2anet
 from . import keypoint_hrhrnet
 from . import keypoint_hrnet
-from . import keypoint_vitpose
 from . import jde
 from . import deepsort
 from . import fairmot
@@ -42,9 +41,6 @@ from . import yolof
 from . import pose3d_metro
 from . import centertrack
 from . import queryinst
-from . import detr_ssod
-from . import multi_stream_detector
-from . import clrnet
 
 from .meta_arch import *
 from .faster_rcnn import *
@@ -59,7 +55,6 @@ from .ttfnet import *
 from .s2anet import *
 from .keypoint_hrhrnet import *
 from .keypoint_hrnet import *
-from .keypoint_vitpose import *
 from .jde import *
 from .deepsort import *
 from .fairmot import *
@@ -78,6 +73,3 @@ from .pose3d_metro import *
 from .centertrack import *
 from .queryinst import *
 from .keypoint_petr import *
-from .detr_ssod import *
-from .multi_stream_detector import *
-from .clrnet import *

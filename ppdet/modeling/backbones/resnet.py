@@ -443,8 +443,7 @@ class ResNet(nn.Layer):
                  return_idx=[0, 1, 2, 3],
                  dcn_v2_stages=[-1],
                  num_stages=4,
-                 std_senet=False,
-                 freeze_stem_only=False):
+                 std_senet=False):
         """
         Residual Network, see https://arxiv.org/abs/1512.03385
         
@@ -559,9 +558,8 @@ class ResNet(nn.Layer):
 
         if freeze_at >= 0:
             self._freeze_parameters(self.conv1)
-            if not freeze_stem_only:
-                for i in range(min(freeze_at + 1, num_stages)):
-                    self._freeze_parameters(self.res_layers[i])
+            for i in range(min(freeze_at + 1, num_stages)):
+                self._freeze_parameters(self.res_layers[i])
 
     def _freeze_parameters(self, m):
         for p in m.parameters():

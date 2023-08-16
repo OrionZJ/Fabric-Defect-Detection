@@ -101,8 +101,7 @@ DATASETS = {
         '8a3a353c2c54a2284ad7d2780b65f6a6', ), ], ['annotations', 'images']),
     'coco_ce': ([(
         'https://paddledet.bj.bcebos.com/data/coco_ce.tar',
-        'eadd1b79bc2f069f2744b1dd4e0c0329', ), ], []),
-    'culane': ([('https://bj.bcebos.com/v1/paddledet/data/culane.tar', None, ), ], [])
+        'eadd1b79bc2f069f2744b1dd4e0c0329', ), ], [])
 }
 
 DOWNLOAD_DATASETS_LIST = DATASETS.keys()

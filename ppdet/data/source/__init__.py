@@ -19,7 +19,6 @@ from . import category
 from . import keypoint_coco
 from . import mot
 from . import sniper_coco
-from . import culane
 
 from .coco import *
 from .voc import *
@@ -30,4 +29,3 @@ from .mot import *
 from .sniper_coco import SniperCOCODataSet
 from .dataset import ImageFolder
 from .pose3d_cmb import *
-from .culane import *

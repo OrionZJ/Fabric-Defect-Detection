@@ -24,7 +24,6 @@ else:
 import numpy as np
 import paddle
 import paddle.nn.functional as F
-import cv2
 
 from copy import deepcopy
 
@@ -40,18 +39,7 @@ logger = setup_logger('reader')
 
 MAIN_PID = os.getpid()
 
-class Canny(object):
-    def __init__(self, threshold1, threshold2):
-        self.threshold1 = threshold1
-        self.threshold2 = threshold2
 
-    def __call__(self, data):
-        image = data['image']
-        depth_image_map = cv2.convertScaleAbs(image)
-        canny_image = cv2.Canny(depth_image_map, self.threshold1, self.threshold2)
-        data['canny_image'] = canny_image
-        return data
-        
 class Compose(object):
     def __init__(self, transforms, num_classes=80):
         self.transforms = transforms
@@ -62,9 +50,6 @@ class Compose(object):
                 f = op_cls(**v)
                 if hasattr(f, 'num_classes'):
                     f.num_classes = num_classes
-
-                if k == 'Canny':
-                    f = Canny(**v)
 
                 self.transforms_cls.append(f)
 
@@ -78,17 +63,6 @@ class Compose(object):
                                "with error: {} and stack:\n{}".format(
                                    f, e, str(stack_info)))
                 raise e
-
-                if isinstance(f, Canny):
-                    data = f(data)
-                    image = data['image']
-                    canny_image = data['canny_image']
-                    if len(image.shape) == 2:
-                        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-                    if len(canny_image.shape) == 2:
-                        canny_image = cv2.cvtColor(canny_image, cv2.COLOR_GRAY2BGR)
-                    merged_image = cv2.merge([image[:, :, 0], image[:, :, 1], image[:, :, 2], canny_image])
-                    data['image'] = merged_image
 
         return data
 
@@ -274,7 +248,7 @@ class EvalReader(BaseDataLoader):
                  batch_transforms=[],
                  batch_size=1,
                  shuffle=False,
-                 drop_last=False,
+                 drop_last=True,
                  num_classes=80,
                  **kwargs):
         super(EvalReader, self).__init__(sample_transforms, batch_transforms,
@@ -418,11 +392,7 @@ class BatchCompose_SSOD(Compose):
         for f in self.transforms_cls:
             try:
                 data = f(data)
-                if 'BatchRandomResizeForSSOD' in f._id:
-                    strong_data = f(strong_data, data[1])[0]
-                    data = data[0]
-                else:
-                    strong_data = f(strong_data)
+                strong_data = f(strong_data)
             except Exception as e:
                 stack_info = traceback.format_exc()
                 logger.warning("fail to map batch transform [{}] "

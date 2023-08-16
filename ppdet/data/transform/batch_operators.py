@@ -38,10 +38,19 @@ from ppdet.modeling.keypoint_utils import get_affine_transform, affine_transform
 logger = setup_logger(__name__)
 
 __all__ = [
-    'PadBatch', 'BatchRandomResize', 'Gt2YoloTarget', 'Gt2FCOSTarget',
-    'Gt2TTFTarget', 'Gt2Solov2Target', 'Gt2SparseTarget', 'PadMaskBatch',
-    'Gt2GFLTarget', 'Gt2CenterNetTarget', 'Gt2CenterTrackTarget', 'PadGT',
-    'PadRGT', 'BatchRandomResizeForSSOD'
+    'PadBatch',
+    'BatchRandomResize',
+    'Gt2YoloTarget',
+    'Gt2FCOSTarget',
+    'Gt2TTFTarget',
+    'Gt2Solov2Target',
+    'Gt2SparseTarget',
+    'PadMaskBatch',
+    'Gt2GFLTarget',
+    'Gt2CenterNetTarget',
+    'Gt2CenterTrackTarget',
+    'PadGT',
+    'PadRGT',
 ]
 
 
@@ -941,7 +950,7 @@ class Gt2SparseTarget(BaseOperator):
 @register_op
 class PadMaskBatch(BaseOperator):
     """
-    Pad a batch of samples so that they can be divisible by a stride.
+    Pad a batch of samples so they can be divisible by a stride.
     The layout of each image should be 'CHW'.
     Args:
         pad_to_stride (int): If `pad_to_stride > 0`, pad zeros to ensure
@@ -950,7 +959,7 @@ class PadMaskBatch(BaseOperator):
             `pad_mask` for transformer.
     """
 
-    def __init__(self, pad_to_stride=0, return_pad_mask=True):
+    def __init__(self, pad_to_stride=0, return_pad_mask=False):
         super(PadMaskBatch, self).__init__()
         self.pad_to_stride = pad_to_stride
         self.return_pad_mask = return_pad_mask
@@ -975,7 +984,7 @@ class PadMaskBatch(BaseOperator):
             im_c, im_h, im_w = im.shape[:]
             padding_im = np.zeros(
                 (im_c, max_shape[1], max_shape[2]), dtype=np.float32)
-            padding_im[:, :im_h, :im_w] = im.astype(np.float32)
+            padding_im[:, :im_h, :im_w] = im
             data['image'] = padding_im
             if 'semantic' in data and data['semantic'] is not None:
                 semantic = data['semantic']
@@ -1099,13 +1108,12 @@ class PadGT(BaseOperator):
         self.pad_img = pad_img
         self.minimum_gtnum = minimum_gtnum
 
-    def _impad(self,
-               img: np.ndarray,
-               *,
-               shape=None,
-               padding=None,
-               pad_val=0,
-               padding_mode='constant') -> np.ndarray:
+    def _impad(self, img: np.ndarray,
+            *,
+            shape = None,
+            padding = None,
+            pad_val = 0,
+            padding_mode = 'constant') -> np.ndarray:
         """Pad the given image to a certain shape or pad on all sides with
         specified padding mode and padding value.
 
@@ -1161,7 +1169,7 @@ class PadGT(BaseOperator):
             padding = (padding, padding, padding, padding)
         else:
             raise ValueError('Padding must be a int or a 2, or 4 element tuple.'
-                             f'But received {padding}')
+                            f'But received {padding}')
 
         # check padding mode
         assert padding_mode in ['constant', 'edge', 'reflect', 'symmetric']
@@ -1186,10 +1194,10 @@ class PadGT(BaseOperator):
     def checkmaxshape(self, samples):
         maxh, maxw = 0, 0
         for sample in samples:
-            h, w = sample['im_shape']
-            if h > maxh:
+            h,w = sample['im_shape']
+            if h>maxh:
                 maxh = h
-            if w > maxw:
+            if w>maxw:
                 maxw = w
         return (maxh, maxw)
 
@@ -1238,8 +1246,7 @@ class PadGT(BaseOperator):
                 sample['difficult'] = pad_diff
             if 'gt_joints' in sample:
                 num_joints = sample['gt_joints'].shape[1]
-                pad_gt_joints = np.zeros(
-                    (num_max_boxes, num_joints, 3), dtype=np.float32)
+                pad_gt_joints = np.zeros((num_max_boxes, num_joints, 3), dtype=np.float32)
                 if num_gt > 0:
                     pad_gt_joints[:num_gt] = sample['gt_joints']
                 sample['gt_joints'] = pad_gt_joints
@@ -1475,58 +1482,3 @@ class Gt2CenterTrackTarget(BaseOperator):
 
         del sample
         return new_sample
-
-
-@register_op
-class BatchRandomResizeForSSOD(BaseOperator):
-    """
-    Resize image to target size randomly. random target_size and interpolation method
-    Args:
-        target_size (int, list, tuple): image target size, if random size is True, must be list or tuple
-        keep_ratio (bool): whether keep_raio or not, default true
-        interp (int): the interpolation method
-        random_size (bool): whether random select target size of image
-        random_interp (bool): whether random select interpolation method
-    """
-
-    def __init__(self,
-                 target_size,
-                 keep_ratio,
-                 interp=cv2.INTER_NEAREST,
-                 random_size=True,
-                 random_interp=False):
-        super(BatchRandomResizeForSSOD, self).__init__()
-        self.keep_ratio = keep_ratio
-        self.interps = [
-            cv2.INTER_NEAREST,
-            cv2.INTER_LINEAR,
-            cv2.INTER_AREA,
-            cv2.INTER_CUBIC,
-            cv2.INTER_LANCZOS4,
-        ]
-        self.interp = interp
-        assert isinstance(target_size, (
-            int, Sequence)), "target_size must be int, list or tuple"
-        if random_size and not isinstance(target_size, list):
-            raise TypeError(
-                "Type of target_size is invalid when random_size is True. Must be List, now is {}".
-                format(type(target_size)))
-        self.target_size = target_size
-        self.random_size = random_size
-        self.random_interp = random_interp
-
-    def __call__(self, samples, context=None):
-        if self.random_size:
-            index = np.random.choice(len(self.target_size))
-            target_size = self.target_size[index]
-        else:
-            target_size = self.target_size
-        if context is not None:
-            target_size = self.target_size[context]
-        if self.random_interp:
-            interp = np.random.choice(self.interps)
-        else:
-            interp = self.interp
-
-        resizer = Resize(target_size, keep_ratio=self.keep_ratio, interp=interp)
-        return [resizer(samples, context=context), index]
