@@ -6,7 +6,7 @@ eval_size: &eval_size [*eval_height, *eval_width]
 TrainReader:
   sample_transforms:
     - Decode: {}
-    - Canny: {threshold1: 50, threshold2: 150, merge: True, gap: 50}
+    - CannyImage: {threshold1: 50, threshold2: 150, merge: True, gap: 50}
     - RandomDistort: {}
     - RandomExpand: {fill_value: [123.675, 116.28, 103.53]}
     - RandomCrop: {}
@@ -27,7 +27,7 @@ TrainReader:
 EvalReader:
   sample_transforms:
     - Decode: {}
-    - Canny: {threshold1: 50, threshold2: 150, merge: True, gap: 50}
+    - CannyImage: {threshold1: 50, threshold2: 150, merge: True, gap: 50}
     - Resize: {target_size: *eval_size, keep_ratio: False, interp: 2}
     - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
     - Permute: {}
@@ -38,7 +38,7 @@ TestReader:
     image_shape: [3, *eval_height, *eval_width]
   sample_transforms:
     - Decode: {}
-    - Canny: {threshold1: 50, threshold2: 150, merge: True, gap: 50}
+    - CannyImage: {threshold1: 50, threshold2: 150, merge: True, gap: 50}
     - Resize: {target_size: *eval_size, keep_ratio: False, interp: 2}
     - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
     - Permute: {}
