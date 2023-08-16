@@ -6,7 +6,9 @@ eval_size: &eval_size [*eval_height, *eval_width]
 TrainReader:
   sample_transforms:
     - Decode: {}
-    - Canny: {threshold1: 50, threshold2: 150}
+    # - Canny: {threshold1: 50, threshold2: 150, idx: 0}
+    # - Canny: {threshold1: 150, threshold2: 200, idx: 1}
+    # - IALM: {scale: 0.1, lmbda: 0.01, tol: 1e-7, maxIter: 1000}
     - RandomDistort: {}
     - RandomExpand: {fill_value: [123.675, 116.28, 103.53]}
     - RandomCrop: {}
@@ -18,7 +20,7 @@ TrainReader:
     - Permute: {}
     - PadGT: {}
     
-  batch_size: 4
+  batch_size: 16
   shuffle: true
   drop_last: true
   use_shared_memory: true
@@ -27,6 +29,9 @@ TrainReader:
 EvalReader:
   sample_transforms:
     - Decode: {}
+    - Canny: {threshold1: 50, threshold2: 150, idx: 0}
+    # - Canny: {threshold1: 150, threshold2: 200, idx: 1}
+    # - IALM: { scale: 0.1, lmbda: 0.01, tol: 1e-7, maxIter: 1000 }
     - Resize: {target_size: *eval_size, keep_ratio: False, interp: 2}
     - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
     - Permute: {}
@@ -37,7 +42,9 @@ TestReader:
     image_shape: [3, *eval_height, *eval_width]
   sample_transforms:
     - Decode: {}
-    - Canny: {threshold1: 50, threshold2: 150}
+    - Canny: {threshold1: 50, threshold2: 150, idx: 0}
+    # - Canny: {threshold1: 150, threshold2: 200, idx: 1}
+    # - IALM: {scale: 0.1, lmbda: 0.01, tol: 1e-7, maxIter: 1000}
     - Resize: {target_size: *eval_size, keep_ratio: False, interp: 2}
     - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
     - Permute: {}

@@ -28,7 +28,7 @@ from .mot_operators import *
 from .rotated_operators import *
 from .keypoints_3d_operators import *
 from .culane_operators import *
-from .Canny import *
+
 
 __all__ = []
 __all__ += registered_ops
