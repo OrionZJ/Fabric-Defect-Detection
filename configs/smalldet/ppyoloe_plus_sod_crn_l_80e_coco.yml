@@ -1,5 +1,5 @@
 _BASE_: [
-  '../datasets/coco_detection.yml',
+  '../datasets/coco_detection_sliced.yml',
   '../runtime.yml',
   '../ppyoloe/_base_/optimizer_80e.yml',
   '../ppyoloe/_base_/ppyoloe_plus_crn.yml',
