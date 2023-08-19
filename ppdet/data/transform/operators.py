@@ -166,22 +166,25 @@ def _make_dirs(dirname):
 
 @register_op
 class CannyImage(BaseOperator):
-    def __init__(self, threshold1=50, threshold2=150, merge=True, gap=50):
+    def __init__(self, threshold1=50, threshold2=150, concat=True, gap=50):
         super(CannyImage, self).__init__()
         self.threshold1 = threshold1
         self.threshold2 = threshold2
-        self.merge = merge
+        self.concat = concat
         self.gap = gap
 
     def __call__(self, sample, context=None):
         image = sample['image']
         canny_image = cv2.Canny(image, self.threshold1, self.threshold2)
         sample['canny_image'] = canny_image
-        if self.merge:
+        if self.concat:
+            b, g ,r =cv2.split(image) 
+            img_merge = cv2.merge([b, g, r, canny_image])
+        else:
             canny_image2 = cv2.Canny(image, self.threshold1 + self.gap, self.threshold2 + self.gap) 
             img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             img_merge = cv2.merge([img_gray, canny_image, canny_image2])
-            sample['image'] = img_merge
+        sample['image'] = img_merge
         return sample
 
 
