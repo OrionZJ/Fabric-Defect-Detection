@@ -10,7 +10,7 @@ snapshot_epoch: 5
 weights: output/ppyoloe_plus_sod_crn_l_80e_coco/model_final
 
 # pretrain_weights: https://bj.bcebos.com/v1/paddledet/models/pretrained/ppyoloe_crn_l_obj365_pretrained.pdparams
-pretrain_weights: /home/aistudio/work/Fabric-Defect-Detection/output/ppyoloe_plus_sod_crn_l_80e_coco/best_model.pdparams
+pretrain_weights: ../output/ppyoloe_plus_sod_crn_l_80e_coco/best_model.pdparams
 depth_mult: 1.0
 width_mult: 1.0
 

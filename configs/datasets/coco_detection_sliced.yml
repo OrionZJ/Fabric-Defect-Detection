@@ -5,14 +5,14 @@ TrainDataset:
   name: COCODataSet
   image_dir: instances_train2017_images_640_025
   anno_path: instances_train2017_640_025.json
-  dataset_dir: /home/aistudio/data/dataset/coco_sliced
+  dataset_dir: ../guangdong/coco_sliced
   data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
 
 EvalDataset:
   name: COCODataSet
   image_dir: instances_val2017_images_640_025
   anno_path: instances_val2017_640_025.json
-  dataset_dir: /home/aistudio/data/dataset/coco_sliced
+  dataset_dir: ../guangdong/coco_sliced
   allow_empty: true
 
 # TestDataset:
