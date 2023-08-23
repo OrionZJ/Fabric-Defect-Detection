@@ -166,24 +166,33 @@ def _make_dirs(dirname):
 
 @register_op
 class CannyImage(BaseOperator):
-    def __init__(self, threshold1=50, threshold2=150, concat=True, gap=50):
+    def __init__(self, threshold1=50, threshold2=150, alpha=0.5 ,concat=False):
         super(CannyImage, self).__init__()
         self.threshold1 = threshold1
         self.threshold2 = threshold2
+        self.alpha = alpha
         self.concat = concat
-        self.gap = gap
 
     def __call__(self, sample, context=None):
         image = sample['image']
-        canny_image = cv2.Canny(image, self.threshold1, self.threshold2)
-        sample['canny_image'] = canny_image
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, self.threshold1, self.threshold2)
+        sample['edges'] = edges
         if self.concat:
             b, g ,r =cv2.split(image) 
-            img_merge = cv2.merge([b, g, r, canny_image])
+            img_merge = cv2.merge([b, g, r, edges])
         else:
-            canny_image2 = cv2.Canny(image, self.threshold1 + self.gap, self.threshold2 + self.gap) 
-            img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            img_merge = cv2.merge([img_gray, canny_image, canny_image2])
+            # 将灰度图像转换为具有三个通道的图像
+            edges_rgb = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+            # 归一化映射到0-1之间
+            normalized_image = image.astype(float) / 255
+            normalized_edges = edges_rgb.astype(float) / 255
+
+            # 进行叠加
+            result = self.alpha * normalized_edges + (1 - self.alpha) * normalized_image
+
+            # 还原到0-255之间
+            img_merge = (result * 255).astype(np.uint8)
         sample['image'] = img_merge
         return sample
 
