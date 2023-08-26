@@ -11,7 +11,7 @@ find_unused_parameters: True
 log_iter: 100
 snapshot_epoch: 2
 
-pretrain_weights: ./pretrained/focalnet_large_fl4_pretrained_on_o365.pdparams
+# pretrain_weights: ./pretrained/focalnet_large_fl4_pretrained_on_o365.pdparams
 DETR:
   backbone: FocalNet
   neck: HybridEncoder
