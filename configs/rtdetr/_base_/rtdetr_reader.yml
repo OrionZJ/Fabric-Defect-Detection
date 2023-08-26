@@ -2,6 +2,10 @@ worker_num: 4
 TrainReader:
   sample_transforms:
     - Decode: {}
+<<<<<<< HEAD
+=======
+    - CannyImage: {threshold1: 50, threshold2: 550, alpha: 0.3, concat: False}
+>>>>>>> f71c67ad701c1347be42e85b11e6cf040711b4b2
     - RandomDistort: {prob: 0.8}
     - RandomExpand: {fill_value: [123.675, 116.28, 103.53]}
     - RandomCrop: {prob: 0.8}
@@ -22,6 +26,10 @@ TrainReader:
 EvalReader:
   sample_transforms:
     - Decode: {}
+<<<<<<< HEAD
+=======
+    - CannyImage: {threshold1: 50, threshold2: 550, alpha: 0.3, concat: False}
+>>>>>>> f71c67ad701c1347be42e85b11e6cf040711b4b2
     - Resize: {target_size: [640, 640], keep_ratio: False, interp: 2}
     - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
     - Permute: {}
@@ -35,6 +43,10 @@ TestReader:
     image_shape: [3, 640, 640]
   sample_transforms:
     - Decode: {}
+<<<<<<< HEAD
+=======
+    - CannyImage: {threshold1: 50, threshold2: 550, alpha: 0.3, concat: False}
+>>>>>>> f71c67ad701c1347be42e85b11e6cf040711b4b2
     - Resize: {target_size: [640, 640], keep_ratio: False, interp: 2}
     - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
     - Permute: {}
