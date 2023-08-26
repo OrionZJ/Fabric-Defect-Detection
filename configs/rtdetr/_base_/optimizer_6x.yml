@@ -1,14 +1,7 @@
-<<<<<<< HEAD
-epoch: 72
-
-LearningRate:
-  base_lr: 0.0001
-=======
 epoch: 300
 
 LearningRate:
   base_lr: 0.00005
->>>>>>> f71c67ad701c1347be42e85b11e6cf040711b4b2
   schedulers:
   - !PiecewiseDecay
     gamma: 1.0
