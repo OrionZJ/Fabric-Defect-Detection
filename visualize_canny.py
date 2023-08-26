@@ -6,7 +6,7 @@ threshold1 = 50
 threshold2 = 550
 alpha = 0.3
 
-path = "3.jpg"
+path = "1.jpg"
 image = cv2.imread(path)
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 edges = cv2.Canny(gray, threshold1, threshold2)
