@@ -1,5 +1,5 @@
 metric: COCO
-num_classes: 80
+num_classes: 20
 
 TrainDataset:
   name: COCODataSet
