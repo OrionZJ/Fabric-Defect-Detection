@@ -38,16 +38,17 @@ from ppdet.optimizer import ModelEMA
 from ppdet.core.workspace import create
 from ppdet.utils.checkpoint import load_weight, load_pretrain_weight
 from ppdet.utils.visualizer import visualize_results, save_result
-from ppdet.metrics import Metric, COCOMetric, VOCMetric, WiderFaceMetric, get_infer_results, KeyPointTopDownCOCOEval, KeyPointTopDownMPIIEval, Pose3DEval
-from ppdet.metrics import RBoxMetric, JDEDetMetric, SNIPERCOCOMetric
+from ppdet.metrics import get_infer_results, KeyPointTopDownCOCOEval, KeyPointTopDownCOCOWholeBadyHandEval, KeyPointTopDownMPIIEval, Pose3DEval
+from ppdet.metrics import Metric, COCOMetric, VOCMetric, WiderFaceMetric, RBoxMetric, JDEDetMetric, SNIPERCOCOMetric, CULaneMetric
 from ppdet.data.source.sniper_coco import SniperCOCODataSet
 from ppdet.data.source.category import get_categories
 import ppdet.utils.stats as stats
 from ppdet.utils.fuse_utils import fuse_conv_bn
 from ppdet.utils import profiler
 from ppdet.modeling.post_process import multiclass_nms
+from ppdet.modeling.lane_utils import imshow_lanes
 
-from .callbacks import Callback, ComposeCallback, LogPrinter, Checkpointer, WiferFaceEval, VisualDLWriter, SniperProposalsGenerator, WandbCallback
+from .callbacks import Callback, ComposeCallback, LogPrinter, Checkpointer, WiferFaceEval, VisualDLWriter, SniperProposalsGenerator, WandbCallback, SemiCheckpointer, SemiLogPrinter
 from .export_utils import _dump_infer_config, _prune_input_spec, apply_to_static
 
 from paddle.distributed.fleet.utils.hybrid_parallel_util import fused_allreduce_gradients
@@ -72,6 +73,7 @@ class Trainer(object):
         self.amp_level = self.cfg.get('amp_level', 'O1')
         self.custom_white_list = self.cfg.get('custom_white_list', None)
         self.custom_black_list = self.cfg.get('custom_black_list', None)
+        self.use_master_grad = self.cfg.get('master_grad', False)
         if 'slim' in cfg and cfg['slim_type'] == 'PTQ':
             self.cfg['TestDataset'] = create('TestDataset')()
 
@@ -179,10 +181,19 @@ class Trainer(object):
                 self.pruner = create('UnstructuredPruner')(self.model,
                                                            steps_per_epoch)
         if self.use_amp and self.amp_level == 'O2':
-            self.model, self.optimizer = paddle.amp.decorate(
-                models=self.model,
-                optimizers=self.optimizer,
-                level=self.amp_level)
+            paddle_version = paddle.__version__[:3]
+            # paddle version >= 2.5.0 or develop
+            if paddle_version in ["2.5", "0.0"]:
+                self.model, self.optimizer = paddle.amp.decorate(
+                    models=self.model,
+                    optimizers=self.optimizer,
+                    level=self.amp_level,
+                    master_grad=self.use_master_grad)
+            else:
+                self.model, self.optimizer = paddle.amp.decorate(
+                    models=self.model,
+                    optimizers=self.optimizer,
+                    level=self.amp_level)
         self.use_ema = ('use_ema' in cfg and cfg['use_ema'])
         if self.use_ema:
             ema_decay = self.cfg.get('ema_decay', 0.9998)
@@ -215,7 +226,11 @@ class Trainer(object):
 
     def _init_callbacks(self):
         if self.mode == 'train':
-            self._callbacks = [LogPrinter(self), Checkpointer(self)]
+            if self.cfg.get('ssod_method',
+                            False) and self.cfg['ssod_method'] == 'Semi_RTDETR':
+                self._callbacks = [SemiLogPrinter(self), SemiCheckpointer(self)]
+            else:
+                self._callbacks = [LogPrinter(self), Checkpointer(self)]
             if self.cfg.get('use_vdl', False):
                 self._callbacks.append(VisualDLWriter(self))
             if self.cfg.get('save_proposals', False):
@@ -348,6 +363,19 @@ class Trainer(object):
                     self.cfg.save_dir,
                     save_prediction_only=save_prediction_only)
             ]
+        elif self.cfg.metric == 'KeyPointTopDownCOCOWholeBadyHandEval':
+            eval_dataset = self.cfg['EvalDataset']
+            eval_dataset.check_or_download_dataset()
+            anno_file = eval_dataset.get_anno()
+            save_prediction_only = self.cfg.get('save_prediction_only', False)
+            self._metrics = [
+                KeyPointTopDownCOCOWholeBadyHandEval(
+                    anno_file,
+                    len(eval_dataset),
+                    self.cfg.num_joints,
+                    self.cfg.save_dir,
+                    save_prediction_only=save_prediction_only)
+            ]
         elif self.cfg.metric == 'KeyPointTopDownMPIIEval':
             eval_dataset = self.cfg['EvalDataset']
             eval_dataset.check_or_download_dataset()
@@ -370,6 +398,15 @@ class Trainer(object):
             ]
         elif self.cfg.metric == 'MOTDet':
             self._metrics = [JDEDetMetric(), ]
+        elif self.cfg.metric == 'CULaneMetric':
+            output_eval = self.cfg.get('output_eval', None)
+            self._metrics = [
+                CULaneMetric(
+                    cfg=self.cfg,
+                    output_eval=output_eval,
+                    split=self.dataset.split,
+                    dataset_dir=self.cfg.dataset_dir)
+            ]
         else:
             logger.warning("Metric not support for metric type {}".format(
                 self.cfg.metric))
@@ -394,11 +431,11 @@ class Trainer(object):
                     "metrics shoule be instances of subclass of Metric"
         self._metrics.extend(metrics)
 
-    def load_weights(self, weights):
+    def load_weights(self, weights, ARSL_eval=False):
         if self.is_loaded_weights:
             return
         self.start_epoch = 0
-        load_pretrain_weight(self.model, weights)
+        load_pretrain_weight(self.model, weights, ARSL_eval)
         logger.debug("Load weights {} to start training".format(weights))
 
     def load_weights_sde(self, det_weights, reid_weights):
@@ -429,10 +466,8 @@ class Trainer(object):
         model = self.model
         if self.cfg.get('to_static', False):
             model = apply_to_static(self.cfg, model)
-        sync_bn = (
-            getattr(self.cfg, 'norm_type', None) == 'sync_bn' and
-            (self.cfg.use_gpu or self.cfg.use_npu or self.cfg.use_mlu) and
-            self._nranks > 1)
+        sync_bn = (getattr(self.cfg, 'norm_type', None) == 'sync_bn' and
+                   (self.cfg.use_gpu or self.cfg.use_mlu) and self._nranks > 1)
         if sync_bn:
             model = paddle.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
@@ -487,6 +522,9 @@ class Trainer(object):
                 profiler.add_profiler_step(profiler_options)
                 self._compose_callback.on_step_begin(self.status)
                 data['epoch_id'] = epoch_id
+                if self.cfg.get('to_static',
+                                False) and 'image_file' in data.keys():
+                    data.pop('image_file')
 
                 if self.use_amp:
                     if isinstance(
@@ -982,8 +1020,10 @@ class Trainer(object):
         for step_id, data in enumerate(tqdm(loader)):
             self.status['step_id'] = step_id
             # forward
-            outs = self.model(data)
-
+            if hasattr(self.model, 'modelTeacher'):
+                outs = self.model.modelTeacher(data)
+            else:
+                outs = self.model(data)
             for _m in metrics:
                 _m.update(data, outs)
 
@@ -1056,7 +1096,10 @@ class Trainer(object):
     def _get_infer_cfg_and_input_spec(self,
                                       save_dir,
                                       prune_input=True,
-                                      kl_quant=False):
+                                      kl_quant=False,
+                                      yaml_name=None):
+        if yaml_name is None:
+            yaml_name = 'infer_cfg.yml'
         image_shape = None
         im_shape = [None, 2]
         scale_factor = [None, 2]
@@ -1107,7 +1150,7 @@ class Trainer(object):
 
         # Save infer cfg
         _dump_infer_config(self.cfg,
-                           os.path.join(save_dir, 'infer_cfg.yml'), image_shape,
+                           os.path.join(save_dir, yaml_name), image_shape,
                            self.model)
 
         input_spec = [{
@@ -1122,6 +1165,12 @@ class Trainer(object):
             input_spec[0].update({
                 "crops": InputSpec(
                     shape=[None, 3, 192, 64], name='crops')
+            })
+
+        if self.cfg.architecture == 'CLRNet':
+            input_spec[0].update({
+                "full_img_path": str,
+                "img_name": str,
             })
         if prune_input:
             static_model = paddle.jit.to_static(
@@ -1157,7 +1206,7 @@ class Trainer(object):
 
         return static_model, pruned_input_spec
 
-    def export(self, output_dir='output_inference'):
+    def export(self, output_dir='output_inference', for_fd=False):
         if hasattr(self.model, 'aux_neck'):
             self.model.__delattr__('aux_neck')
         if hasattr(self.model, 'aux_head'):
@@ -1165,23 +1214,31 @@ class Trainer(object):
         self.model.eval()
 
         model_name = os.path.splitext(os.path.split(self.cfg.filename)[-1])[0]
-        save_dir = os.path.join(output_dir, model_name)
+        if for_fd:
+            save_dir = output_dir
+            save_name = 'inference'
+            yaml_name = 'inference.yml'
+        else:
+            save_dir = os.path.join(output_dir, model_name)
+            save_name = 'model'
+            yaml_name = None
+
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
 
         static_model, pruned_input_spec = self._get_infer_cfg_and_input_spec(
-            save_dir)
+            save_dir, yaml_name=yaml_name)
 
         # dy2st and save model
         if 'slim' not in self.cfg or 'QAT' not in self.cfg['slim_type']:
             paddle.jit.save(
                 static_model,
-                os.path.join(save_dir, 'model'),
+                os.path.join(save_dir, save_name),
                 input_spec=pruned_input_spec)
         else:
             self.cfg.slim.save_quantized_model(
                 self.model,
-                os.path.join(save_dir, 'model'),
+                os.path.join(save_dir, save_name),
                 input_spec=pruned_input_spec)
         logger.info("Export model and saved in {}".format(save_dir))
 
@@ -1261,3 +1318,107 @@ class Trainer(object):
             logger.info("Found {} inference images in total.".format(
                 len(images)))
         return all_images
+
+    def predict_culane(self,
+                       images,
+                       output_dir='output',
+                       save_results=False,
+                       visualize=True):
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        self.dataset.set_images(images)
+        loader = create('TestReader')(self.dataset, 0)
+
+        imid2path = self.dataset.get_imid2path()
+
+        def setup_metrics_for_loader():
+            # mem
+            metrics = copy.deepcopy(self._metrics)
+            mode = self.mode
+            save_prediction_only = self.cfg[
+                'save_prediction_only'] if 'save_prediction_only' in self.cfg else None
+            output_eval = self.cfg[
+                'output_eval'] if 'output_eval' in self.cfg else None
+
+            # modify
+            self.mode = '_test'
+            self.cfg['save_prediction_only'] = True
+            self.cfg['output_eval'] = output_dir
+            self.cfg['imid2path'] = imid2path
+            self._init_metrics()
+
+            # restore
+            self.mode = mode
+            self.cfg.pop('save_prediction_only')
+            if save_prediction_only is not None:
+                self.cfg['save_prediction_only'] = save_prediction_only
+
+            self.cfg.pop('output_eval')
+            if output_eval is not None:
+                self.cfg['output_eval'] = output_eval
+
+            self.cfg.pop('imid2path')
+
+            _metrics = copy.deepcopy(self._metrics)
+            self._metrics = metrics
+
+            return _metrics
+
+        if save_results:
+            metrics = setup_metrics_for_loader()
+        else:
+            metrics = []
+
+        # Run Infer 
+        self.status['mode'] = 'test'
+        self.model.eval()
+        if self.cfg.get('print_flops', False):
+            flops_loader = create('TestReader')(self.dataset, 0)
+            self._flops(flops_loader)
+        results = []
+        for step_id, data in enumerate(tqdm(loader)):
+            self.status['step_id'] = step_id
+            # forward
+            outs = self.model(data)
+
+            for _m in metrics:
+                _m.update(data, outs)
+
+            for key in ['im_shape', 'scale_factor', 'im_id']:
+                if isinstance(data, typing.Sequence):
+                    outs[key] = data[0][key]
+                else:
+                    outs[key] = data[key]
+            for key, value in outs.items():
+                if hasattr(value, 'numpy'):
+                    outs[key] = value.numpy()
+            results.append(outs)
+
+        for _m in metrics:
+            _m.accumulate()
+            _m.reset()
+
+        if visualize:
+            import cv2
+
+            for outs in results:
+                for i in range(len(outs['img_path'])):
+                    lanes = outs['lanes'][i]
+                    img_path = outs['img_path'][i]
+                    img = cv2.imread(img_path)
+                    out_file = os.path.join(output_dir,
+                                            os.path.basename(img_path))
+                    lanes = [
+                        lane.to_array(
+                            sample_y_range=[
+                                self.cfg['sample_y']['start'],
+                                self.cfg['sample_y']['end'],
+                                self.cfg['sample_y']['step']
+                            ],
+                            img_w=self.cfg.ori_img_w,
+                            img_h=self.cfg.ori_img_h) for lane in lanes
+                    ]
+                    imshow_lanes(img, lanes, out_file=out_file)
+
+        return results
