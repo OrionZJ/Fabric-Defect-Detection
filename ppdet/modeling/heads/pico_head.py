@@ -242,6 +242,7 @@ class PicoHead(OTAVFLHead):
         self.nms_pre = nms_pre
         self.cell_offset = cell_offset
         self.eval_size = eval_size
+        self.device = paddle.device.get_device()
 
         self.use_sigmoid = self.loss_vfl.use_sigmoid
         if self.use_sigmoid:
@@ -397,7 +398,11 @@ class PicoHead(OTAVFLHead):
         stride_tensor = paddle.concat(stride_tensor)
         return anchor_points, stride_tensor
 
-    def post_process(self, head_outs, scale_factor, export_nms=True):
+    def post_process(self,
+                     head_outs,
+                     scale_factor,
+                     export_nms=True,
+                     nms_cpu=False):
         pred_scores, pred_bboxes = head_outs
         if not export_nms:
             return pred_bboxes, pred_scores
@@ -409,7 +414,12 @@ class PicoHead(OTAVFLHead):
                 axis=-1).reshape([-1, 1, 4])
             # scale bbox to origin image size.
             pred_bboxes /= scale_factor
-            bbox_pred, bbox_num, _ = self.nms(pred_bboxes, pred_scores)
+            if nms_cpu:
+                paddle.set_device("cpu")
+                bbox_pred, bbox_num, _ = self.nms(pred_bboxes, pred_scores)
+                paddle.set_device(self.device)
+            else:
+                bbox_pred, bbox_num, _ = self.nms(pred_bboxes, pred_scores)
             return bbox_pred, bbox_num
 
 
@@ -651,7 +661,7 @@ class PicoHeadV2(GFLHead):
 
         # label assignment
         if gt_meta['epoch_id'] < self.static_assigner_epoch:
-            assigned_labels, assigned_bboxes, assigned_scores, _ = self.static_assigner(
+            assigned_labels, assigned_bboxes, assigned_scores = self.static_assigner(
                 anchors,
                 num_anchors_list,
                 gt_labels,
@@ -662,7 +672,7 @@ class PicoHeadV2(GFLHead):
                 pred_bboxes=pred_bboxes.detach() * stride_tensor_list)
 
         else:
-            assigned_labels, assigned_bboxes, assigned_scores, _ = self.assigner(
+            assigned_labels, assigned_bboxes, assigned_scores = self.assigner(
                 pred_scores.detach(),
                 pred_bboxes.detach() * stride_tensor_list,
                 centers,
@@ -767,7 +777,11 @@ class PicoHeadV2(GFLHead):
         stride_tensor = paddle.concat(stride_tensor)
         return anchor_points, stride_tensor
 
-    def post_process(self, head_outs, scale_factor, export_nms=True):
+    def post_process(self,
+                     head_outs,
+                     scale_factor,
+                     export_nms=True,
+                     nms_cpu=False):
         pred_scores, pred_bboxes = head_outs
         if not export_nms:
             return pred_bboxes, pred_scores

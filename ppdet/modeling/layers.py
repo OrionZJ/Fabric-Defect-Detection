@@ -362,6 +362,8 @@ class DropBlock(nn.Layer):
                 padding=self.block_size // 2,
                 data_format=self.data_format)
             mask = 1. - mask_inv
+            mask = mask.astype('float32')
+            x = x.astype('float32')
             y = x * mask * (mask.numel() / mask.sum())
             return y
 
@@ -1003,7 +1005,7 @@ class MaskMatrixNMS(object):
         keep = paddle.squeeze(keep, axis=[1])
         # Prevent empty and increase fake data
         keep = paddle.concat(
-            [keep, paddle.cast(paddle.shape(cate_scores)[0] - 1, 'int64')])
+            [keep, paddle.cast(paddle.shape(cate_scores)[0:1] - 1, 'int64')])
 
         seg_preds = paddle.gather(seg_preds, index=keep)
         cate_scores = paddle.gather(cate_scores, index=keep)
@@ -1134,6 +1136,7 @@ def _convert_attention_mask(attn_mask, dtype):
         Tensor: A Tensor with shape same as input `attn_mask`, with data type `dtype`.
     """
     return nn.layer.transformer._convert_attention_mask(attn_mask, dtype)
+
 
 @register
 class MultiHeadAttention(nn.Layer):
@@ -1296,7 +1299,6 @@ class MultiHeadAttention(nn.Layer):
                 self.dropout,
                 training=self.training,
                 mode="upscale_in_train")
-
         out = paddle.matmul(weights, v)
 
         # combine heads
@@ -1337,7 +1339,7 @@ class ConvMixer(nn.Layer):
         Seq, ActBn = nn.Sequential, lambda x: Seq(x, nn.GELU(), nn.BatchNorm2D(dim))
         Residual = type('Residual', (Seq, ),
                         {'forward': lambda self, x: self[0](x) + x})
-        return Seq(*[
+        return Seq(* [
             Seq(Residual(
                 ActBn(
                     nn.Conv2D(

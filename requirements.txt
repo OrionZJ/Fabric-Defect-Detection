@@ -10,6 +10,7 @@ terminaltables
 Cython
 pycocotools
 setuptools
+Pillow
 
 # for MOT evaluation and inference
 lap
@@ -18,3 +19,6 @@ sklearn==0.0
 
 # for vehicleplate in deploy/pipeline/ppvehicle
 pyclipper
+
+# for culane data augumetation
+imgaug>=0.4.0

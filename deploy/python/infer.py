@@ -33,9 +33,10 @@ sys.path.insert(0, parent_path)
 
 from benchmark_utils import PaddleInferBenchmark
 from picodet_postprocess import PicoDetPostProcess
-from preprocess import preprocess, Resize, NormalizeImage, Permute, PadStride, LetterBoxResize, WarpAffine, Pad, decode_image
+from preprocess import preprocess, Resize, NormalizeImage, Permute, PadStride, LetterBoxResize, WarpAffine, Pad, decode_image, CULaneResize
 from keypoint_preprocess import EvalAffine, TopDownEvalAffine, expand_crop
-from visualize import visualize_box_mask
+from clrnet_postprocess import CLRNetPostProcess
+from visualize import visualize_box_mask, imshow_lanes
 from utils import argsparser, Timer, get_current_memory_mb, multiclass_nms, coco_clsid2catid
 
 # Global dictionary
@@ -43,10 +44,8 @@ SUPPORT_MODELS = {
     'YOLO', 'PPYOLOE', 'RCNN', 'SSD', 'Face', 'FCOS', 'SOLOv2', 'TTFNet',
     'S2ANet', 'JDE', 'FairMOT', 'DeepSORT', 'GFL', 'PicoDet', 'CenterNet',
     'TOOD', 'RetinaNet', 'StrongBaseline', 'STGCN', 'YOLOX', 'YOLOF', 'PPHGNet',
-    'PPLCNet', 'DETR', 'CenterTrack'
+    'PPLCNet', 'DETR', 'CenterTrack', 'CLRNet'
 }
-
-TUNED_TRT_DYNAMIC_MODELS = {'DETR'}
 
 
 def bench_log(detector, img_list, model_info, batch_size=1, name=None):
@@ -102,8 +101,9 @@ class Detector(object):
                  enable_mkldnn_bfloat16=False,
                  output_dir='output',
                  threshold=0.5,
-                 delete_shuffle_pass=False):
-        self.pred_config = self.set_config(model_dir)
+                 delete_shuffle_pass=False,
+                 use_fd_format=False):
+        self.pred_config = self.set_config(model_dir, use_fd_format=use_fd_format)
         self.predictor, self.config = load_predictor(
             model_dir,
             self.pred_config.arch,
@@ -126,8 +126,8 @@ class Detector(object):
         self.output_dir = output_dir
         self.threshold = threshold
 
-    def set_config(self, model_dir):
-        return PredictConfig(model_dir)
+    def set_config(self, model_dir, use_fd_format):
+        return PredictConfig(model_dir, use_fd_format=use_fd_format)
 
     def preprocess(self, image_list):
         preprocess_ops = []
@@ -445,7 +445,7 @@ class Detector(object):
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
         out_path = os.path.join(self.output_dir, video_out_name)
-        fourcc = cv2.VideoWriter_fourcc(* 'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         writer = cv2.VideoWriter(out_path, fourcc, fps, (width, height))
         index = 1
         while (1):
@@ -561,7 +561,8 @@ class DetectorSOLOv2(Detector):
             enable_mkldnn=False,
             enable_mkldnn_bfloat16=False,
             output_dir='./',
-            threshold=0.5, ):
+            threshold=0.5, 
+            use_fd_format=False):
         super(DetectorSOLOv2, self).__init__(
             model_dir=model_dir,
             device=device,
@@ -575,7 +576,8 @@ class DetectorSOLOv2(Detector):
             enable_mkldnn=enable_mkldnn,
             enable_mkldnn_bfloat16=enable_mkldnn_bfloat16,
             output_dir=output_dir,
-            threshold=threshold, )
+            threshold=threshold, 
+            use_fd_format=use_fd_format)
 
     def predict(self, repeats=1, run_benchmark=False):
         '''
@@ -651,7 +653,8 @@ class DetectorPicoDet(Detector):
             enable_mkldnn=False,
             enable_mkldnn_bfloat16=False,
             output_dir='./',
-            threshold=0.5, ):
+            threshold=0.5, 
+            use_fd_format=False):
         super(DetectorPicoDet, self).__init__(
             model_dir=model_dir,
             device=device,
@@ -665,7 +668,8 @@ class DetectorPicoDet(Detector):
             enable_mkldnn=enable_mkldnn,
             enable_mkldnn_bfloat16=enable_mkldnn_bfloat16,
             output_dir=output_dir,
-            threshold=threshold, )
+            threshold=threshold, 
+            use_fd_format=use_fd_format)
 
     def postprocess(self, inputs, result):
         # postprocess output of predictor
@@ -712,6 +716,114 @@ class DetectorPicoDet(Detector):
                     self.predictor.get_output_handle(output_names[
                         out_idx + num_outs]).copy_to_cpu())
         result = dict(boxes=np_score_list, boxes_num=np_boxes_list)
+        return result
+
+
+class DetectorCLRNet(Detector):
+    """
+    Args:
+        model_dir (str): root path of model.pdiparams, model.pdmodel and infer_cfg.yml
+        device (str): Choose the device you want to run, it can be: CPU/GPU/XPU, default is CPU
+        run_mode (str): mode of running(paddle/trt_fp32/trt_fp16)
+        batch_size (int): size of pre batch in inference
+        trt_min_shape (int): min shape for dynamic shape in trt
+        trt_max_shape (int): max shape for dynamic shape in trt
+        trt_opt_shape (int): opt shape for dynamic shape in trt
+        trt_calib_mode (bool): If the model is produced by TRT offline quantitative
+            calibration, trt_calib_mode need to set True
+        cpu_threads (int): cpu threads
+        enable_mkldnn (bool): whether to turn on MKLDNN
+        enable_mkldnn_bfloat16 (bool): whether to turn on MKLDNN_BFLOAT16
+    """
+
+    def __init__(
+            self,
+            model_dir,
+            device='CPU',
+            run_mode='paddle',
+            batch_size=1,
+            trt_min_shape=1,
+            trt_max_shape=1280,
+            trt_opt_shape=640,
+            trt_calib_mode=False,
+            cpu_threads=1,
+            enable_mkldnn=False,
+            enable_mkldnn_bfloat16=False,
+            output_dir='./',
+            threshold=0.5, 
+            use_fd_format=False):
+        super(DetectorCLRNet, self).__init__(
+            model_dir=model_dir,
+            device=device,
+            run_mode=run_mode,
+            batch_size=batch_size,
+            trt_min_shape=trt_min_shape,
+            trt_max_shape=trt_max_shape,
+            trt_opt_shape=trt_opt_shape,
+            trt_calib_mode=trt_calib_mode,
+            cpu_threads=cpu_threads,
+            enable_mkldnn=enable_mkldnn,
+            enable_mkldnn_bfloat16=enable_mkldnn_bfloat16,
+            output_dir=output_dir,
+            threshold=threshold, 
+            use_fd_format=use_fd_format)
+
+        deploy_file = os.path.join(model_dir, 'infer_cfg.yml')
+        with open(deploy_file) as f:
+            yml_conf = yaml.safe_load(f)
+        self.img_w = yml_conf['img_w']
+        self.ori_img_h = yml_conf['ori_img_h']
+        self.cut_height = yml_conf['cut_height']
+        self.max_lanes = yml_conf['max_lanes']
+        self.nms_thres = yml_conf['nms_thres']
+        self.num_points = yml_conf['num_points']
+        self.conf_threshold = yml_conf['conf_threshold']
+
+    def postprocess(self, inputs, result):
+        # postprocess output of predictor
+        lanes_list = result['lanes']
+        postprocessor = CLRNetPostProcess(
+            img_w=self.img_w,
+            ori_img_h=self.ori_img_h,
+            cut_height=self.cut_height,
+            conf_threshold=self.conf_threshold,
+            nms_thres=self.nms_thres,
+            max_lanes=self.max_lanes,
+            num_points=self.num_points)
+        lanes = postprocessor(lanes_list)
+        result = dict(lanes=lanes)
+        return result
+
+    def predict(self, repeats=1, run_benchmark=False):
+        '''
+        Args:
+            repeats (int): repeat number for prediction
+        Returns:
+            result (dict): include 'boxes': np.ndarray: shape:[N,6], N: number of box,
+                            matix element:[class, score, x_min, y_min, x_max, y_max]
+        '''
+        lanes_list = []
+
+        if run_benchmark:
+            for i in range(repeats):
+                self.predictor.run()
+                paddle.device.cuda.synchronize()
+            result = dict(lanes=lanes_list)
+            return result
+
+        for i in range(repeats):
+            # TODO: check the output of predictor
+            self.predictor.run()
+            lanes_list.clear()
+            output_names = self.predictor.get_output_names()
+            num_outs = int(len(output_names) / 2)
+            if num_outs == 0:
+                lanes_list.append([])
+            for out_idx in range(num_outs):
+                lanes_list.append(
+                    self.predictor.get_output_handle(output_names[out_idx])
+                    .copy_to_cpu())
+        result = dict(lanes=lanes_list)
         return result
 
 
@@ -762,9 +874,24 @@ class PredictConfig():
         model_dir (str): root path of model.yml
     """
 
-    def __init__(self, model_dir):
+    def __init__(self, model_dir, use_fd_format=False):
         # parsing Yaml config for Preprocess
-        deploy_file = os.path.join(model_dir, 'infer_cfg.yml')
+        fd_deploy_file = os.path.join(model_dir, 'inference.yml')
+        ppdet_deploy_file = os.path.join(model_dir, 'infer_cfg.yml')
+        if use_fd_format:
+            if not os.path.exists(fd_deploy_file) and os.path.exists(
+                    ppdet_deploy_file):
+                raise RuntimeError(
+                    "Non-FD format model detected. Please set `use_fd_format` to False."
+                )
+            deploy_file = fd_deploy_file
+        else:
+            if not os.path.exists(ppdet_deploy_file) and os.path.exists(
+                    fd_deploy_file):
+                raise RuntimeError(
+                    "FD format model detected. Please set `use_fd_format` to False."
+                )
+            deploy_file = ppdet_deploy_file
         with open(deploy_file) as f:
             yml_conf = yaml.safe_load(f)
         self.check_model(yml_conf)
@@ -823,8 +950,7 @@ def load_predictor(model_dir,
                    cpu_threads=1,
                    enable_mkldnn=False,
                    enable_mkldnn_bfloat16=False,
-                   delete_shuffle_pass=False,
-                   tuned_trt_shape_file="shape_range_info.pbtxt"):
+                   delete_shuffle_pass=False):
     """set AnalysisConfig, generate AnalysisPredictor
     Args:
         model_dir (str): root path of __model__ and __params__
@@ -891,8 +1017,6 @@ def load_predictor(model_dir,
         'trt_fp16': Config.Precision.Half
     }
     if run_mode in precision_map.keys():
-        if arch in TUNED_TRT_DYNAMIC_MODELS:
-            config.collect_shape_range_info(tuned_trt_shape_file)
         config.enable_tensorrt_engine(
             workspace_size=(1 << 25) * batch_size,
             max_batch_size=batch_size,
@@ -900,9 +1024,13 @@ def load_predictor(model_dir,
             precision_mode=precision_map[run_mode],
             use_static=False,
             use_calib_mode=trt_calib_mode)
-        if arch in TUNED_TRT_DYNAMIC_MODELS:
-            config.enable_tuned_tensorrt_dynamic_shape(tuned_trt_shape_file,
-                                                       True)
+        if FLAGS.collect_trt_shape_info:
+            config.collect_shape_range_info(FLAGS.tuned_trt_shape_file)
+        elif os.path.exists(FLAGS.tuned_trt_shape_file):
+            print(f'Use dynamic shape file: '
+                  f'{FLAGS.tuned_trt_shape_file} for TRT...')
+            config.enable_tuned_tensorrt_dynamic_shape(
+                FLAGS.tuned_trt_shape_file, True)
 
         if use_dynamic_shape:
             min_input_shape = {
@@ -966,6 +1094,16 @@ def get_test_images(infer_dir, infer_img):
 
 def visualize(image_list, result, labels, output_dir='output/', threshold=0.5):
     # visualize the predict result
+    if 'lanes' in result:
+        print(image_list)
+        for idx, image_file in enumerate(image_list):
+            lanes = result['lanes'][idx]
+            img = cv2.imread(image_file)
+            out_file = os.path.join(output_dir, os.path.basename(image_file))
+            # hard code
+            lanes = [lane.to_array([], ) for lane in lanes]
+            imshow_lanes(img, lanes, out_file=out_file)
+            return
     start_idx = 0
     for idx, image_file in enumerate(image_list):
         im_bboxes_num = result['boxes_num'][idx]
@@ -1005,7 +1143,10 @@ def print_arguments(args):
 
 
 def main():
-    deploy_file = os.path.join(FLAGS.model_dir, 'infer_cfg.yml')
+    if FLAGS.use_fd_format:
+        deploy_file = os.path.join(FLAGS.model_dir, 'inference.yml')
+    else:
+        deploy_file = os.path.join(FLAGS.model_dir, 'infer_cfg.yml')
     with open(deploy_file) as f:
         yml_conf = yaml.safe_load(f)
     arch = yml_conf['arch']
@@ -1014,6 +1155,8 @@ def main():
         detector_func = 'DetectorSOLOv2'
     elif arch == 'PicoDet':
         detector_func = 'DetectorPicoDet'
+    elif arch == "CLRNet":
+        detector_func = 'DetectorCLRNet'
 
     detector = eval(detector_func)(
         FLAGS.model_dir,
@@ -1028,7 +1171,8 @@ def main():
         enable_mkldnn=FLAGS.enable_mkldnn,
         enable_mkldnn_bfloat16=FLAGS.enable_mkldnn_bfloat16,
         threshold=FLAGS.threshold,
-        output_dir=FLAGS.output_dir)
+        output_dir=FLAGS.output_dir,
+        use_fd_format=FLAGS.use_fd_format)
 
     # predict from video file or camera video stream
     if FLAGS.video_file is not None or FLAGS.camera_id != -1:
