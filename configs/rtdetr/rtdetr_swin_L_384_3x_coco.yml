@@ -11,7 +11,7 @@ find_unused_parameters: True
 log_iter: 100
 snapshot_epoch: 2
 
-# pretrain_weights: https://bj.bcebos.com/v1/paddledet/models/dino_swin_large_384_4scale_3x_coco.pdparams
+pretrain_weights: ./pretrained/dino_swin_large_384_4scale_3x_coco.pdparams
 DETR:
   backbone: SwinTransformer
   neck: HybridEncoder
