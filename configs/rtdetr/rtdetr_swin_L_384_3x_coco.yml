@@ -7,7 +7,7 @@ _BASE_: [
 ]
 
 weights: output/rtdetr_swin_L_384_3x_coco/model_final
-find_unused_parameters: False
+find_unused_parameters: True
 log_iter: 100
 snapshot_epoch: 2
 
